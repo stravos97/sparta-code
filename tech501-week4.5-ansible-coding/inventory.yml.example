@@ -1,0 +1,16 @@
+---
+all:
+  children:
+    web:
+      hosts:
+        app-instance:
+          ansible_host: "{{ app_external_ip | default('PLACEHOLDER_APP_EXTERNAL_IP') }}"
+    db:
+      hosts:
+        db-instance:
+          ansible_host: "{{ db_external_ip | default('PLACEHOLDER_DB_EXTERNAL_IP') }}"
+          db_instance_internal_ip: "{{ db_internal_ip | default('PLACEHOLDER_DB_INTERNAL_IP') }}"
+  vars:
+    ansible_user: adminuser
+    ansible_ssh_private_key_file: "{{ ssh_private_key_path | default('PLACEHOLDER_SSH_PRIVATE_KEY_PATH') }}"
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'

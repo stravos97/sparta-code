@@ -1,0 +1,101 @@
+---
+- name: Install app dependencies and run app
+  hosts: db
+  become: true
+  tasks:
+    - name: Check if MongoDB repository exists with correct content
+      ansible.builtin.command: grep -q "deb.*mongodb.*7.0.*multiverse" /etc/apt/sources.list.d/mongodb-org-7.0.list
+      register: repo_check
+      failed_when: false
+      changed_when: false
+      check_mode: no
+
+    - name: Import MongoDB GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+        --dearmor
+      args:
+        creates: /usr/share/keyrings/mongodb-server-7.0.gpg
+      register: import_gpg_result
+
+    - name: Remove any existing MongoDB repository files (only if content is incorrect)
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/mongodb-org-7.0.list"
+        state: absent
+      when: repo_check.rc != 0
+      register: remove_repo_result
+
+    - name: Remove MongoDB entries from main sources.list
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list
+        regexp: "deb.*mongodb.*"
+        state: absent
+      register: remove_entries_result
+
+    - name: Add MongoDB repository (only if needed)
+      ansible.builtin.apt_repository:
+        repo: "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/7.0 multiverse"
+        state: present
+        filename: mongodb-org-7.0
+      when: repo_check.rc != 0
+      register: add_repo_result
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: update_cache_result
+
+    - name: Install MongoDB 7.0.6 packages
+      ansible.builtin.apt:
+        name:
+          - mongodb-org=7.0.6
+          - mongodb-org-database=7.0.6
+          - mongodb-org-server=7.0.6
+          - mongodb-mongosh
+          - mongodb-org-mongos=7.0.6
+          - mongodb-org-tools=7.0.6
+        state: present
+        force_apt_get: true
+        install_recommends: false
+      register: install_packages_result
+
+    # - name: Hold MongoDB packages at installed version
+    #   ansible.builtin.dpkg_selections:
+    #     name: "{{ item }}"
+    #     selection: hold
+    #   loop:
+    #     - mongodb-org
+    #     - mongodb-org-database
+    #     - mongodb-org-server
+    #     - mongodb-org-mongos
+    #     - mongodb-org-tools
+    #   register: hold_packages_result
+
+    - name: Display debug information for all tasks
+      ansible.builtin.debug:
+        msg:
+          - "MongoDB Repository Status:"
+          - "  Repository file exists: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository content valid: {{ 'Yes' if repo_check.rc == 0 else 'No' }}"
+          - "  Repository check return code: {{ repo_check.rc }}"
+          - ""
+          - "MongoDB GPG Key Status:"
+          - "  GPG key installed: {{ 'Yes' if import_gpg_result is not changed else 'No' }}"
+          - "  GPG key installation changed: {{ import_gpg_result.changed }}"
+          - ""
+          - "Repository Management Status:"
+          - "  Repository file removed: {{ remove_repo_result.changed | default('Task skipped') }}"
+          - "  Sources.list entries removed: {{ remove_entries_result.changed }}"
+          - "  Repository file added: {{ add_repo_result.changed | default('Task skipped') }}"
+          - ""
+          - "Package Management Status:"
+          - "  Apt cache updated: {{ update_cache_result.cache_updated }}"
+          - "  MongoDB packages installed: {{ 'Yes' if install_packages_result is not changed else 'Installing' }}"
+          - "  Installation changed anything: {{ install_packages_result.changed }}"
+          - ""
+          # - "Package Versioning Status:"
+          # - "  Packages on hold: {{ 'Yes' if not hold_packages_result.changed else 'Setting now' }}"
+          # - "  Hold status changed: {{ hold_packages_result.changed }}"
+      tags: always
